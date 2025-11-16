@@ -1,18 +1,26 @@
--- Rayfield UI読み込み（Rayfieldライブラリのパスは環境に合わせてください）
-local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/shlexware/Rayfield/main/source'))()
+-- Rayfield UI読み込み
+local success, Rayfield = pcall(function()
+    return loadstring(game:HttpGet('https://raw.githubusercontent.com/shlexware/Rayfield/main/source'))()
+end)
+
+if not success then
+    warn("Rayfield UIの読み込みに失敗しました")
+    return
+end
 
 local Window = Rayfield:CreateWindow({
     Name = "Pixel Blade - Auto Script",
     LoadingTitle = "Pixel Blade Script",
     LoadingSubtitle = "by ChatGPT",
     ConfigurationSaving = {
-        Enabled = true,
-        FolderName = "PixelBladeScripts",
+        Enabled = false, -- Krnlでは無効化
+        FolderName = nil,
         FileName = "Config"
     },
     Discord = {
         Enabled = false
-    }
+    },
+    KeySystem = false
 })
 
 -- 変数
@@ -23,20 +31,39 @@ local AutoUpgradeEnabled = false
 local AutoStatAllocateEnabled = false
 
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
-local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
+
+-- キャラクター取得の安全な処理
+local function getCharacter()
+    return LocalPlayer.Character
+end
+
+local function getHRP()
+    local char = getCharacter()
+    return char and char:FindFirstChild("HumanoidRootPart")
+end
 
 -- ヘルパー関数
 local function getNearestEnemy()
+    local hrp = getHRP()
+    if not hrp then return nil end
+    
     local closest = nil
     local dist = math.huge
-    for _, enemy in pairs(workspace.Enemies:GetChildren()) do
-        if enemy:FindFirstChild("HumanoidRootPart") and enemy.Humanoid.Health > 0 then
-            local distance = (HumanoidRootPart.Position - enemy.HumanoidRootPart.Position).Magnitude
-            if distance < dist then
-                dist = distance
-                closest = enemy
+    
+    local enemiesFolder = workspace:FindFirstChild("Enemies")
+    if not enemiesFolder then return nil end
+    
+    for _, enemy in pairs(enemiesFolder:GetChildren()) do
+        if enemy:FindFirstChild("HumanoidRootPart") then
+            local humanoid = enemy:FindFirstChild("Humanoid")
+            if humanoid and humanoid.Health > 0 then
+                local distance = (hrp.Position - enemy.HumanoidRootPart.Position).Magnitude
+                if distance < dist then
+                    dist = distance
+                    closest = enemy
+                end
             end
         end
     end
@@ -44,21 +71,53 @@ local function getNearestEnemy()
 end
 
 -- オート攻撃処理
-spawn(function()
-    while wait(0.1) do
-        if AutoAttackEnabled then
-            local enemy = getNearestEnemy()
-            if enemy then
-                -- 攻撃関数呼び出し（ゲーム固有の攻撃関数に置き換えてください）
-                -- 例: LocalPlayer.Character.Humanoid:MoveTo(enemy.HumanoidRootPart.Position)
-                -- ここはゲームに合わせて調整が必要です
+task.spawn(function()
+    while task.wait(0.1) do
+        pcall(function()
+            if AutoAttackEnabled then
+                local enemy = getNearestEnemy()
+                if enemy and enemy:FindFirstChild("HumanoidRootPart") then
+                    local char = getCharacter()
+                    if char then
+                        local humanoid = char:FindFirstChild("Humanoid")
+                        if humanoid then
+                            -- 敵に移動
+                            humanoid:MoveTo(enemy.HumanoidRootPart.Position)
+                            
+                            -- 攻撃処理（ゲームによって異なる）
+                            -- 例: game:GetService("ReplicatedStorage").Events.Attack:FireServer(enemy)
+                        end
+                    end
+                end
             end
-        end
+        end)
+    end
+end)
+
+-- オートチェスト処理
+task.spawn(function()
+    while task.wait(1) do
+        pcall(function()
+            if AutoChestEnabled then
+                local hrp = getHRP()
+                if hrp then
+                    for _, chest in pairs(workspace:GetDescendants()) do
+                        if chest.Name:lower():find("chest") and chest:IsA("Model") then
+                            local chestPart = chest:FindFirstChild("HumanoidRootPart") or chest.PrimaryPart
+                            if chestPart then
+                                hrp.CFrame = chestPart.CFrame
+                                task.wait(0.5)
+                            end
+                        end
+                    end
+                end
+            end
+        end)
     end
 end)
 
 -- UI作成
-local Tab = Window:CreateTab("Main", 4483362458) -- アイコンIDは任意
+local Tab = Window:CreateTab("Main", 4483362458)
 
 -- オート攻撃トグル
 Tab:CreateToggle({
@@ -67,6 +126,7 @@ Tab:CreateToggle({
     Flag = "AutoAttack",
     Callback = function(value)
         AutoAttackEnabled = value
+        print("Auto Attack:", value)
     end,
 })
 
@@ -77,6 +137,7 @@ Tab:CreateToggle({
     Flag = "AutoChest",
     Callback = function(value)
         AutoChestEnabled = value
+        print("Auto Chest:", value)
     end,
 })
 
@@ -87,6 +148,7 @@ Tab:CreateToggle({
     Flag = "AutoPickup",
     Callback = function(value)
         AutoPickupEnabled = value
+        print("Auto Pickup:", value)
     end,
 })
 
@@ -97,6 +159,7 @@ Tab:CreateToggle({
     Flag = "AutoUpgrade",
     Callback = function(value)
         AutoUpgradeEnabled = value
+        print("Auto Upgrade:", value)
     end,
 })
 
@@ -107,30 +170,34 @@ Tab:CreateToggle({
     Flag = "AutoStatAllocate",
     Callback = function(value)
         AutoStatAllocateEnabled = value
+        print("Auto Stat:", value)
     end,
 })
 
 -- スピード調整スライダー
-local speed = 16
 Tab:CreateSlider({
     Name = "Walk Speed",
     Range = {16, 100},
     Increment = 1,
-    Suffix = "speed",
+    Suffix = " speed",
     CurrentValue = 16,
     Flag = "WalkSpeed",
     Callback = function(value)
-        speed = value
-        if Character and Character:FindFirstChild("Humanoid") then
-            Character.Humanoid.WalkSpeed = speed
+        local char = getCharacter()
+        if char then
+            local humanoid = char:FindFirstChild("Humanoid")
+            if humanoid then
+                humanoid.WalkSpeed = value
+            end
         end
     end,
 })
 
--- テレポート機能（サンプルとして座標入力）
+-- テレポート座標
 local teleportX = 0
 local teleportY = 0
 local teleportZ = 0
+
 Tab:CreateInput({
     Name = "Teleport X",
     PlaceholderText = "X座標",
@@ -161,11 +228,29 @@ Tab:CreateInput({
 Tab:CreateButton({
     Name = "Teleport",
     Callback = function()
-        if Character and Character:FindFirstChild("HumanoidRootPart") then
-            Character.HumanoidRootPart.CFrame = CFrame.new(teleportX, teleportY, teleportZ)
+        local hrp = getHRP()
+        if hrp then
+            hrp.CFrame = CFrame.new(teleportX, teleportY, teleportZ)
+            print("Teleported to:", teleportX, teleportY, teleportZ)
+        else
+            warn("キャラクターが見つかりません")
         end
     end,
 })
 
-print("Pixel Blade Auto Script loaded!")
+-- キャラクター再生成時の処理
+LocalPlayer.CharacterAdded:Connect(function(char)
+    task.wait(1)
+    local humanoid = char:WaitForChild("Humanoid")
+    -- スピード設定を再適用
+    local currentSpeed = 16 -- デフォルト値
+    humanoid.WalkSpeed = currentSpeed
+end)
 
+print("✅ Pixel Blade Auto Script loaded successfully!")
+Rayfield:Notify({
+    Title = "Script Loaded",
+    Content = "Pixel Blade Auto Script ready!",
+    Duration = 3,
+    Image = 4483362458
+})
